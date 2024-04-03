@@ -1,0 +1,331 @@
+---
+title: "Results3"
+format: html
+editor: visual
+---
+
+# Pathway Enrichment (Figure 3)
+
+## Libraries and Data Files
+
+```{r}
+#clear environment
+rm(list=ls())
+```
+
+Libraries:
+
+```{r}
+#libraries
+library(data.table)
+library(tidyverse)
+library(ggpubr)
+library(ggforce)
+library(ggthemes)
+library(singscore)
+library(ComplexHeatmap)
+```
+
+Plot theme:
+
+```{r}
+source("/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/theme_manuscript.R")
+```
+
+Directories:
+
+```{r}
+#load directories
+dir.resources <- "/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/"
+
+# data files required
+file.rna <- paste0(dir.resources, "Data/filt.rna.csv")
+
+file.tnbc <- paste0(dir.resources, "Data/filt.tnbc.csv")
+
+file.pi3k.akt <- paste0(dir.resources, "Figure3/WP_PI3K_AKT_SIGNALING_PATHWAY.v2023.2.Hs.tsv")
+
+file.jakstat  <- paste0(dir.resources, "Figure3/KEGG_JAK_STAT_SIGNALING_PATHWAY.v2023.2.Hs.tsv")
+
+file.g2m  <- paste0(dir.resources, "Figure3/HALLMARK_G2M_CHECKPOINT.v2023.2.Hs.tsv")
+
+file.cxcr4.cxcl12  <- paste0(dir.resources, "Figure3/KEGG_MEDICUS_REFERENCE_CXCL12_CXCR4_PKC_ERK_SIGNALING_PATHAWAY.v2023.2.Hs.tsv")
+
+file.cxcr4.pid  <- paste0(dir.resources, "Figure3/PID_CXCR4_PATHWAY.v2023.2.Hs.tsv")
+
+file.ggi  <- paste0(dir.resources, "Figure3/GGI.txt")
+
+file.mapk <- paste0(dir.resources, "Figure3/BIOCARTA_MAPK_PATHWAY.v2023.2.Hs.tsv")
+
+file.cxcr4.pkc <- paste0(dir.resources, "Figure3/KEGG_MEDICUS_REFERENCE_CXCR4_GNB_G_PLCB_PKC_SIGNALING_PATHWAY.v2023.2.Hs.tsv")
+```
+
+File loading:
+
+```{r}
+#rna file
+rna <- read.table(file.rna,row.names=1,sep=",",header=T)
+
+#tnbc clinical file
+tnbc <- fread(file.tnbc)
+
+#load pathways signature genes
+pi3k.akt <- fread(file.pi3k.akt)
+pi3k.akt <- pi3k.akt[17,2]
+pi3k.akt <- unlist(str_split(pi3k.akt,',')) #splitting gene names where there's a comma
+pi3k.akt <- unique(pi3k.akt) #removing repeated genes
+pi3k.akt <- pi3k.akt[pi3k.akt!=""] #removing empty characters
+
+jakstat <- fread(file.jakstat)
+jakstat <- jakstat[17,2]
+jakstat <- unlist(str_split(jakstat,',')) #splitting gene names where there's a comma
+jakstat <- unique(jakstat) #removing repeated genes
+jakstat <- jakstat[jakstat!=""] #removing empty characters
+
+g2m <- fread(file.g2m)
+g2m <- g2m[17,2]
+g2m <- unlist(str_split(g2m,',')) #splitting gene names where there's a comma
+g2m <- unique(g2m) #removing repeated genes
+g2m <- g2m[g2m!=""] #removing empty characters
+
+cxcr4.cxcl12 <- fread(file.cxcr4.cxcl12)
+cxcr4.cxcl12 <- cxcr4.cxcl12[17,2]
+cxcr4.cxcl12 <- unlist(str_split(cxcr4.cxcl12,',')) #splitting gene names where there's a comma
+cxcr4.cxcl12 <- unique(cxcr4.cxcl12) #removing repeated genes
+cxcr4.cxcl12 <- cxcr4.cxcl12[cxcr4.cxcl12!=""] #removing empty characters
+
+cxcr4.pid <- fread(file.cxcr4.pid)
+cxcr4.pid <- cxcr4.pid[17,2]
+cxcr4.pid <- unlist(str_split(cxcr4.pid,',')) #splitting gene names where there's a comma
+cxcr4.pid <- unique(cxcr4.pid) #removing repeated genes
+cxcr4.pid <- cxcr4.pid[cxcr4.pid!=""] #removing empty characters
+
+ggi <- fread(file.ggi)
+
+mapk <- fread(file.mapk)
+mapk <- mapk[17,2]
+mapk <- unlist(str_split(mapk,',')) #splitting gene names where there's a comma
+mapk <- unique(mapk) #removing repeated genes
+mapk <- mapk[mapk!=""] #removing empty characters
+
+cxcr4.pkc <- fread(file.cxcr4.pkc)
+cxcr4.pkc <- cxcr4.pkc[17,2]
+cxcr4.pkc <- unlist(str_split(cxcr4.pkc,',')) #splitting gene names where there's a comma
+cxcr4.pkc <- unique(cxcr4.pkc) #removing repeated genes
+cxcr4.pkc <- cxcr4.pkc[cxcr4.pkc!=""] #removing empty characters
+```
+
+## Enrichment
+
+```{r}
+#ranking all genes
+stable.genes <- getStableGenes(10, type = 'carcinoma')
+rna.ranked <- rankGenes(rna,stableGenes=stable.genes)
+```
+
+```{r}
+#enrichment scores for each pathway
+
+#pi3k-akt
+pi3k.akt.score <- simpleScore(rna.ranked,upSet=pi3k.akt)
+
+#jak-stat
+jakstat.score <- simpleScore(rna.ranked,upSet=jakstat)
+
+#g2m
+g2m.score <- simpleScore(rna.ranked,upSet=g2m)
+
+#cxcr4-cxcl12 erk
+cxcr4.cxcl12.score <- simpleScore(rna.ranked,upSet=cxcr4.cxcl12)
+
+#cxcr4 signaling
+cxcr4.pid.score <- simpleScore(rna.ranked,upSet=cxcr4.pid)
+
+#GGI score
+ggi.score <- simpleScore(rna.ranked,upSet=ggi$hgnc_symbol)
+
+#mapk pathway
+mapk.score <- simpleScore(rna.ranked,upSet=mapk)
+
+#cxcr4-pkc
+cxcr4.pkc.score <- simpleScore(rna.ranked,upSet=cxcr4.pkc)
+```
+
+```{r}
+#merging all scores into one df
+pathway.scores <- data.frame(
+  PI3K_AKT = pi3k.akt.score$TotalScore,
+  JAK_STAT = jakstat.score$TotalScore,
+  G2M_checkpoint = g2m.score$TotalScore,
+  CXCR4_CXCL12_PKC_MAPK = cxcr4.cxcl12.score$TotalScore,
+  CXCR4_signaling = cxcr4.pid.score$TotalScore,
+  GGI = ggi.score$TotalScore,
+  MAPK_signaling = mapk.score$TotalScore,
+  CXCR4_PLC_PKC = cxcr4.pkc.score$TotalScore
+)
+
+#sample id as row names
+rownames(pathway.scores) <- rownames(pi3k.akt.score)
+
+#adding cxcl12, cxcr4, and cxcr7 expression
+pathway.scores <- merge(pathway.scores,t(rna)[,c("CXCL12","CXCR4","ACKR3")],by.x=0,by.y=0)
+
+#matching donor id format to the one in tnbc df
+pathway.scores$Row.names <- gsub("\\.","-",pathway.scores$Row.names)
+
+#adding inclust data
+pathway.scores <- merge(pathway.scores,tnbc[,c("Donor.ID","IntClust")],by.x="Row.names",by.y="Donor.ID")
+
+#first column as row names
+rownames(pathway.scores) <- pathway.scores$Row.names
+pathway.scores <- pathway.scores[,-1]
+```
+
+Which pathways are significantly differently enriched in IntClust10 vs. IntClust4-?
+
+```{r}
+#compute p value for each pathway between ic10 and ic4-
+pvals <- numeric()
+median4 <- numeric()
+median10 <-numeric()
+
+for (cols in c(1:8)){
+  x4 <-  pathway.scores[pathway.scores$IntClust=="4-",cols]
+  x10 <- pathway.scores[pathway.scores$IntClust=="10",cols]
+  m4 <- median(x4, na.rm = T)
+  m10 <- median(x10, na.rm = T)
+  w <- wilcox.test(x4,x10)
+  pvals <- append(pvals,w$p.value)
+  median4 <- append(median4, m4)
+  median10 <- append(median10, m10)
+}
+
+names(pvals)<-colnames(pathway.scores)[1:8]
+pvals <- data.frame(pvals,median4,median10)
+#pvals <- pvals[order(pvals$pvals, decreasing=F),]
+
+#adjusted p values
+pvals$p.adj <- p.adjust(pvals$pvals,method="BH")
+```
+
+Heatmap:
+
+```{r}
+#scaling enrichment scores to put into a heatmap
+scaled.mat <- scale(pathway.scores[,1:8])
+
+#adding intclust classification
+scaled.mat <- merge(scaled.mat,tnbc[,c("Donor.ID","IntClust")],by.x=0,by.y="Donor.ID")
+
+#first column as row names
+rownames(scaled.mat) <- scaled.mat$Row.names
+scaled.mat <- scaled.mat[,-1]
+
+#heatmap annotation
+IC.ann <- HeatmapAnnotation(df = scaled.mat[,"IntClust"],
+  which = 'col',
+  annotation_label = "IntClust",
+  col = list(df=c("4-" = "#B5D0D2", "10" = "#7D26CD")))
+
+#heatmap of pathway enrichments in intclust10 and intclust4-
+
+set.seed(10)
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Figure3/path.clust.pdf",width=15,height=5)
+
+draw(Heatmap(t(as.matrix(scaled.mat[,1:8])),
+        top_annotation = IC.ann,
+        cluster_rows = T,
+        cluster_columns = T,
+        show_row_dend = F,
+        heatmap_legend_param = list(title = "Enrichment Score", legend_direction = "horizontal"),
+        column_km = 3,
+        row_names_gp = gpar(fontsize = 13),
+        show_column_names = F),
+     heatmap_legend_side = "bottom",
+     annotation_legend_side = "left")
+
+dev.off()
+```
+
+Boxplots:
+
+```{r}
+#boxplot for each pathway enrichment in ic10 vs. ic4-
+for (c in 1:8) {
+  x <- ggplot(data = pathway.scores, aes(x = IntClust, y = pathway.scores[,c])) +
+    labs(x = "IntClust", y = paste0(colnames(pathway.scores)[c], " enrichment score")) +
+    theme_manuscript()+
+    geom_boxplot(aes(color=IntClust,fill=IntClust),show.legend = F,outliers = F)+
+    geom_jitter(aes(color=IntClust),show.legend = F,width=0.2)+
+    scale_fill_manual(values=c("#7D26CD","#B5D0D2")) +
+    scale_color_manual(values=c("black","black"))
+  
+  # Create a label for adjusted p-value
+  p_label <- paste("p = ", format(pvals[c,"p.adj"], digits = 3))
+  
+  x <- x +
+    annotate(
+      "text", 
+      x = 1.5, y = 0.6, 
+      label = p_label, size = 7)
+  
+  file <- file.path("/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Supplementary/", paste0(c, "path.box.pdf"))
+  pdf(file,height=7.5)
+  print(x)
+  dev.off()
+}
+```
+
+## Correlation with CXCL12/CXCR7/CXCR4
+
+```{r}
+#correltion with cxcl12
+cxcl12.cor <- numeric()
+
+for (c in 1:8) {
+  cor <- cor(pathway.scores[,c],pathway.scores$CXCL12,method = "spearman")
+  cxcl12.cor <- c(cxcl12.cor,cor)
+}
+
+#correltion with cxcr4
+cxcr4.cor <- numeric()
+
+for (c in 1:8) {
+  cor <- cor(pathway.scores[,c],pathway.scores$CXCR4,method = "spearman")
+  cxcr4.cor <- c(cxcr4.cor,cor)
+}
+  
+#correltion with cxcr7
+cxcr7.cor <- numeric()
+
+for (c in 1:8) {
+  cor <- cor(pathway.scores[,c],pathway.scores$ACKR3,method = "spearman")
+  cxcr7.cor <- c(cxcr7.cor,cor)
+}
+
+#combine into 1 df
+correlation <- data.frame(
+  CXCL12 = cxcl12.cor,
+  CXCR7 = cxcr7.cor,
+  CXCR4 = cxcr4.cor
+)
+
+rownames(correlation) <- colnames(pathway.scores[,1:8])
+
+#heatmap
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Figure3/path.corr.pdf",width=11)
+
+pheatmap(t(as.matrix(correlation)),
+        heatmap_legend_param = list(title = "Spearman's rank coefficient"),
+        display_numbers = T,
+        number_color = "black",
+        fontsize_number = 17,
+        fontsize = 13,
+        cellwidth = 60,
+        angle_col = "45",
+        cellheight = 50)
+
+dev.off()
+```

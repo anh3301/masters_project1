@@ -1,0 +1,648 @@
+---
+title: "Results4"
+format: html
+editor: visual
+---
+
+# Degree Centrality and Interactions (Figure 4)
+
+## Libraries and Data Files
+
+```{r}
+#clear environment
+rm(list=ls())
+```
+
+Libraries:
+
+```{r}
+#libraries
+library(data.table)
+library(tidyverse)
+library(ggpubr)
+library(ggforce)
+library(ggthemes)
+library(igraph)
+```
+
+Plot theme:
+
+```{r}
+source("/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/theme_manuscript.R")
+```
+
+Directories:
+
+```{r}
+#resources directory
+dir.resources <- "/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Data/"
+
+# data files required
+file.singlecells <- paste0(dir.resources, "filt.cells.csv")
+file.clinical <- paste0(dir.resources, "filt.clinical.csv")
+file.neighbours <- paste0(dir.resources, "filt.neighbours.csv")
+```
+
+File loading:
+
+```{r}
+#cells file
+cells <- fread(file.singlecells)
+
+#clinical data file
+clinical <- fread(file.clinical)
+clinical <- clinical %>%
+    mutate(IntClust = str_remove_all(IntClust, "IntClust ")) #removing "IntClust" from the IntClust column
+
+#neighbours file
+neighbours <- fread(file.neighbours)
+```
+
+IntClust images/slides:
+
+```{r}
+#33 IC4- images
+images.4 <- unique(cells[cells$metabric_id %in% clinical[clinical$IntClust == "4-",]$metabric_id,]$ImageNumber)
+
+#54 IC10 images
+images.10 <- unique(cells[cells$metabric_id %in% clinical[clinical$IntClust == "10",]$metabric_id,]$ImageNumber)
+```
+
+## Degree Centrality
+
+### All Connections
+
+IntClust4-
+
+```{r}
+all.dc.4 <- numeric()
+
+for (image in images.4) {
+  #selecting from and to columns of ic4- images
+  f.t <- neighbours %>%
+    filter(ImageNumber == image) %>%
+    select(from, to)
+  
+  #removing the opposite direction of the same pairing
+  f.t.uniq <-
+    f.t[!duplicated(apply(f.t, 1, function(x)
+      paste(sort(x), collapse = ''))),]
+  
+  #creating the network model
+  g <- graph_from_data_frame(f.t.uniq, directed = F)
+  
+  #computing degrees for each cell from the model
+  V(g)$degree <- degree(g, loops = F)
+  
+  #normalising by taking the mean number of connection of a cell
+  norm.degree <- mean((V(g)$degree))
+
+  all.dc.4 <- c(all.dc.4, norm.degree)
+}
+```
+
+IntClust10
+
+```{r}
+all.dc.10 <- numeric()
+
+for (image in images.10) {
+  #selecting from and to columns of ic10 images
+  f.t <- neighbours %>%
+    filter(ImageNumber == image) %>%
+    select(from, to)
+  
+  #removing the opposite direction of the same pairing
+  f.t.uniq <-
+    f.t[!duplicated(apply(f.t, 1, function(x)
+      paste(sort(x), collapse = ''))),]
+  
+  #creating the network model
+  g <- graph_from_data_frame(f.t.uniq, directed = F)
+  
+  #computing the degrees for each cell from the model
+  V(g)$degree <- degree(g, loops = F)
+  
+  #normalising by taking mean degree centrality
+  norm.degree <- mean((V(g)$degree))
+
+  all.dc.10 <- c(all.dc.10, norm.degree)
+}
+```
+
+Comparison:
+
+```{r}
+all.dc <- rbind(
+  data.frame(IntClust = "4-", Degree = all.dc.4),
+  data.frame(IntClust = "10", Degree = all.dc.10)
+  )
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Figure4/all.dc.pdf")
+
+ggplot(all.dc,aes(x=IntClust,y=Degree)) +
+  theme_manuscript() +
+  geom_boxplot(aes(color=IntClust,fill=IntClust),show.legend = F,outliers = F)+
+  geom_jitter(aes(color=IntClust),show.legend = F,width=0.2)+
+  scale_fill_manual(values=c("#7D26CD","#B5D0D2")) +
+  scale_color_manual(values=c("black","black")) +
+  stat_compare_means(method = "wilcox.test",size=7,label.x.npc="middle",label = "p.format") +
+  ylab("Mean degree centrality") +
+  ggtitle("All connections")
+
+dev.off()
+```
+
+### Homotypic Epithelial Connections
+
+```{r}
+#selecting only epithelial-epithelial homotypic interactions
+homotypic.epi <- neighbours[neighbours$from_is_epithelial == 1 &  neighbours$to_is_epithelial == 1,]
+```
+
+IntClust4-
+
+```{r}
+epi.dc.4 <- numeric()
+
+for (image in images.4) {
+  #selecting from and to columns of ic4- images
+  f.t <- homotypic.epi %>%
+    filter(ImageNumber == image) %>%
+    select(from, to)
+  
+  #removing the opposite direction of the same pairing
+  f.t.uniq <-
+    f.t[!duplicated(apply(f.t, 1, function(x)
+      paste(sort(x), collapse = ''))),]
+  
+  #creating the network model
+  g <- graph_from_data_frame(f.t.uniq, directed = F)
+  
+  #computing the degrees for each cell from the model
+  V(g)$degree <- degree(g, loops = F)
+  
+  #normalising by mean
+  norm.degree <- mean((V(g)$degree))
+
+  epi.dc.4 <- c(epi.dc.4, norm.degree)
+}
+```
+
+IntClust10
+
+```{r}
+epi.dc.10 <- numeric()
+
+for (image in images.10) {
+  #selecting from and to columns of ic10 images
+  f.t <- homotypic.epi %>%
+    filter(ImageNumber == image) %>%
+    select(from, to)
+  
+  #removing the opposite direction of the same pairing
+  f.t.uniq <-
+    f.t[!duplicated(apply(f.t, 1, function(x)
+      paste(sort(x), collapse = ''))),]
+  
+  #creating the network model
+  g <- graph_from_data_frame(f.t.uniq, directed = F)
+  
+  #computing the degrees for each cell from the model
+  V(g)$degree <- degree(g, loops = F)
+  
+  #normalising by mean
+  norm.degree <- mean((V(g)$degree))
+
+  epi.dc.10 <- c(epi.dc.10, norm.degree)
+}
+```
+
+Comparison
+
+```{r}
+epi.dc <- rbind(
+  data.frame(IntClust = "4-", Degree = epi.dc.4),
+  data.frame(IntClust = "10", Degree = epi.dc.10)
+  )
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Figure4/epi.dc.pdf")
+
+ggplot(epi.dc,aes(x=IntClust,y=Degree)) +
+  theme_manuscript() +
+  geom_boxplot(aes(color=IntClust,fill=IntClust),show.legend = F,outliers = F)+
+  geom_jitter(aes(color=IntClust),show.legend = F,width=0.2)+
+  scale_fill_manual(values=c("#7D26CD","#B5D0D2")) +
+  scale_color_manual(values=c("black","black")) +
+  stat_compare_means(method = "wilcox.test",size=7,label.x.npc="middle",label = "p.format") +
+  ylab("Mean degree centrality") +
+  ggtitle("Homotypic epithelial connections")
+
+dev.off()
+```
+
+### Homotypic Non-Epithelial Connections
+
+```{r}
+#selecting homotypic tme-tme interactions only
+homotypic.tme <- neighbours[neighbours$from_is_epithelial == 0 & neighbours$to_is_epithelial == 0,]
+```
+
+IntClust4-
+
+```{r}
+tme.dc.4 <- numeric()
+
+for (image in images.4) {
+  #selecting from and to columns of ic4- images
+  f.t <- homotypic.tme %>%
+    filter(ImageNumber == image) %>%
+    select(from, to)
+  
+  #removing the opposite direction of the same pairing
+  f.t.uniq <-
+    f.t[!duplicated(apply(f.t, 1, function(x)
+      paste(sort(x), collapse = ''))),]
+  
+  #creating the network model
+  g <- graph_from_data_frame(f.t.uniq, directed = F)
+  
+  #computing the degrees for each cell from the model
+  V(g)$degree <- degree(g, loops = F)
+  
+  #normalising by mean
+  norm.degree <- mean((V(g)$degree))
+
+  tme.dc.4 <- c(tme.dc.4, norm.degree)
+}
+```
+
+IntClust10
+
+```{r}
+tme.dc.10 <- numeric()
+
+for (image in images.10) {
+  #selecting from and to columns of ic10 images
+  f.t <- homotypic.tme %>%
+    filter(ImageNumber == image) %>%
+    select(from, to)
+  
+  #removing the opposite direction of the same pairing
+  f.t.uniq <-
+    f.t[!duplicated(apply(f.t, 1, function(x)
+      paste(sort(x), collapse = ''))),]
+  
+  #creating the network model
+  g <- graph_from_data_frame(f.t.uniq, directed = F)
+  
+  #computing the degrees for each cell from the model
+  V(g)$degree <- degree(g, loops = F)
+  
+  #normalising by mean
+  norm.degree <- mean((V(g)$degree))
+
+  tme.dc.10 <- c(tme.dc.10, norm.degree)
+}
+```
+
+Comparison
+
+```{r}
+tme.dc <- rbind(
+  data.frame(IntClust = "4-", Degree = tme.dc.4),
+  data.frame(IntClust = "10", Degree = tme.dc.10)
+  )
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Figure4/tme.dc.pdf")
+
+ggplot(tme.dc,aes(x=IntClust,y=Degree)) +
+  theme_manuscript() +
+  geom_boxplot(aes(color=IntClust,fill=IntClust),show.legend = F,outliers = F)+
+  geom_jitter(aes(color=IntClust),show.legend = F,width=0.2)+
+  scale_fill_manual(values=c("#7D26CD","#B5D0D2")) +
+  scale_color_manual(values=c("black","black")) +
+  stat_compare_means(method = "wilcox.test",size=7,label.x.npc="middle",label = "p.format") +
+  ylab("Mean degree centrality") +
+  ggtitle("Homotypic non-epithelial connections")
+
+dev.off()
+```
+
+### Heterotypic Connections
+
+```{r}
+#selecting only heterotypic tme-epithelial interactions
+heterotypic <- neighbours[neighbours$from_is_epithelial == 1 & neighbours$to_is_epithelial == 0 | neighbours$from_is_epithelial == 0 & neighbours$to_is_epithelial == 1,]
+```
+
+IntClust4-
+
+```{r}
+het.dc.4 <- numeric()
+
+for (image in images.4) {
+  #selecting from and to columns of ic4- images
+  f.t <- heterotypic %>%
+    filter(ImageNumber == image) %>%
+    select(from, to)
+  
+  #removing the opposite direction of the same pairing
+  f.t.uniq <-
+    f.t[!duplicated(apply(f.t, 1, function(x)
+      paste(sort(x), collapse = ''))),]
+  
+  #creating the network model
+  g <- graph_from_data_frame(f.t.uniq, directed = F)
+  
+  #computing the degrees for each cell from the model
+  V(g)$degree <- degree(g, loops = F)
+  
+  #normalising by mean
+  norm.degree <- mean((V(g)$degree))
+
+  het.dc.4 <- c(het.dc.4, norm.degree)
+}
+```
+
+IntClust10
+
+```{r}
+het.dc.10 <- numeric()
+
+for (image in images.10) {
+  #selecting from and to columns of ic10 images
+  f.t <- heterotypic %>%
+    filter(ImageNumber == image) %>%
+    select(from, to)
+  
+  #removing the opposite direction of the same pairing
+  f.t.uniq <-
+    f.t[!duplicated(apply(f.t, 1, function(x)
+      paste(sort(x), collapse = ''))),]
+  
+  #creating the network model
+  g <- graph_from_data_frame(f.t.uniq, directed = F)
+  
+  #computing the degrees for each cell from the model
+  V(g)$degree <- degree(g, loops = F)
+  
+  #normalising by mean
+  norm.degree <- mean((V(g)$degree))
+
+  het.dc.10 <- c(het.dc.10, norm.degree)
+}
+```
+
+Comparison
+
+```{r}
+het.dc <- rbind(
+  data.frame(IntClust = "4-", Degree = het.dc.4),
+  data.frame(IntClust = "10", Degree = het.dc.10)
+  )
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Figure4/het.dc.pdf")
+
+ggplot(het.dc,aes(x=IntClust,y=Degree)) +
+  theme_manuscript() +
+  geom_boxplot(aes(color=IntClust,fill=IntClust),show.legend = F,outliers = F)+
+  geom_jitter(aes(color=IntClust),show.legend = F,width=0.2)+
+  scale_fill_manual(values=c("#7D26CD","#B5D0D2")) +
+  scale_color_manual(values=c("black","black")) +
+  stat_compare_means(method = "wilcox.test",size=7,label.x.npc="middle",label = "p.format") +
+  ylab("Mean degree centrality") +
+  ggtitle("Heterotypic connections")
+
+dev.off()
+```
+
+## Clusters
+
+Determining how many tumour cells = tumour island/cluster
+
+```{r}
+#tumour cluster sizes in all samples
+
+all.images <- c(images.4,images.10)
+
+clust.size <- numeric()
+
+for (image in all.images) {
+  #selecting from and to columns
+  f.t <- homotypic.epi %>%
+    filter(ImageNumber == image) %>%
+    select(from, to)
+  
+  #removing the opposite direction of the same pairing
+  f.t.uniq <-
+    f.t[!duplicated(apply(f.t, 1, function(x)
+      paste(sort(x), collapse = ''))),]
+  
+  #creating the network model
+  g <- graph_from_data_frame(f.t.uniq, directed = F)
+  
+  #computing the number of clusters per image
+  clust <- components(g)$csize
+
+  clust.size <- c(clust.size, clust)
+}
+```
+
+```{r}
+cutoff <- 1:150
+
+#count the number of clusters that are bigger than each cutoff
+counts <- sapply(cutoff, function(cutoff) sum(clust.size > cutoff))
+
+#number of clusters that are bigger than each cutoff
+counts.tum <- sapply(cutoff, function(cutoff) sum(clust.size > cutoff))
+```
+
+```{r}
+clust.cutoff <- data.frame(cutoff = cutoff, count = counts.tum)
+
+#barplot of number of clusters remaining with each cut-off
+bar_plot <- ggplot(clust.cutoff, aes(x = cutoff, y = count)) +
+  theme_manuscript() +
+  geom_bar(stat = "identity", fill = "grey",alpha = 0.6) +
+  labs(x = "Cut-off", y = "Number of clusters remaining")
+
+#fitting a smoothed line over the barplot
+smoothed_line <- smooth.spline(cutoff, counts.tum)
+smoothed_data <- data.frame(cutoff = smoothed_line$x, count = smoothed_line$y)
+
+#calculating the second derivative
+second_derivative <- diff(diff(smoothed_line$y)) / diff(smoothed_line$x)^2
+
+#inflection points
+inflection_points <- which(diff(sign(second_derivative)) != 0) + 1
+
+#taking the inflection point with the largest derivative as a cut-off - i.e.tumour island = cell clusters with more than 22 cells
+max(second_derivative[inflection_points])
+second_derivative[22]
+inflection_points[6]
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Supplementary/clust.cut.pdf",width=11)
+
+#plot barplot with inflection point
+bar_plot +
+  geom_line(data = smoothed_data, aes(x = cutoff, y = count), color = "#E59500",linewidth=1) +
+  geom_vline(xintercept = inflection_points[6], color = "#0072B2",linewidth=1)
+
+dev.off()
+```
+
+### Number of Clusters
+
+IntClust4-
+
+```{r}
+#number of tumour clusters with more than 12 cells per image in ic4-
+clust.4 <- numeric()
+
+for (image in images.4) {
+  #selecting from and to columns of ic4- images
+  f.t <- homotypic.epi %>%
+    filter(ImageNumber == image) %>%
+    select(from, to)
+  
+  #removing the opposite direction of the same pairing
+  f.t.uniq <-
+    f.t[!duplicated(apply(f.t, 1, function(x)
+      paste(sort(x), collapse = ''))),]
+  
+  #creating the network model
+  g <- graph_from_data_frame(f.t.uniq, directed = F)
+  
+  #computing the number of clusters > 22 per image
+  clust <- sum(components(g)$csize > 22)
+
+  clust.4 <- c(clust.4, clust)
+}
+```
+
+IntClust10
+
+```{r}
+#same thing for ic10
+clust.10 <- numeric()
+
+for (image in images.10) {
+  #selecting from and to columns of ic10 images
+  f.t <- homotypic.epi %>%
+    filter(ImageNumber == image) %>%
+    select(from, to)
+  
+  #removing the opposite direction of the same pairing
+  f.t.uniq <-
+    f.t[!duplicated(apply(f.t, 1, function(x)
+      paste(sort(x), collapse = ''))),]
+  
+  #creating the network model
+  g <- graph_from_data_frame(f.t.uniq, directed = F)
+  
+  #computing the number of clusters > 22 per image
+  clust <- sum(components(g)$csize > 22)
+
+  clust.10 <- c(clust.10, clust)
+}
+```
+
+Comparison:
+
+```{r}
+clusters <- rbind(
+  data.frame(IntClust = "4-", Clusters = clust.4),
+  data.frame(IntClust = "10", Clusters = clust.10)
+  )
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Figure4/nclusters.pdf")
+
+ggplot(clusters,aes(x=IntClust,y=Clusters)) +
+  theme_manuscript() +
+  geom_boxplot(aes(color=IntClust,fill=IntClust),show.legend = F,outliers = F)+
+  geom_jitter(aes(color=IntClust),show.legend = F,width=0.2)+
+  scale_fill_manual(values=c("#7D26CD","#B5D0D2")) +
+  scale_color_manual(values=c("black","black")) +
+  stat_compare_means(method = "wilcox.test",size=7,label.x.npc="middle",label = "p.format") +
+  ylab("Number of clusters")
+
+dev.off()
+```
+
+### Cluster Size
+
+IntClust4-
+
+```{r}
+#clusters with more than 12 cells in ic4-
+clust.size.4 <- numeric()
+
+for (image in images.4) {
+  #selecting from and to columns of ic4- images
+  f.t <- homotypic.epi %>%
+    filter(ImageNumber == image) %>%
+    select(from, to)
+  
+  #removing the opposite direction of the same pairing
+  f.t.uniq <-
+    f.t[!duplicated(apply(f.t, 1, function(x)
+      paste(sort(x), collapse = ''))),]
+  
+  #creating the network model
+  g <- graph_from_data_frame(f.t.uniq, directed = F)
+  
+  #clusters with > 22 cells
+  clust <- components(g)$csize[components(g)$csize > 22]
+
+  clust.size.4 <- c(clust.size.4, clust)
+}
+```
+
+IntClust10
+
+```{r}
+#same thing for ic10
+clust.size.10 <- numeric()
+
+for (image in images.10) {
+  #selecting from and to columns of ic10 images
+  f.t <- homotypic.epi %>%
+    filter(ImageNumber == image) %>%
+    select(from, to)
+  
+  #removing the opposite direction of the same pairing
+  f.t.uniq <-
+    f.t[!duplicated(apply(f.t, 1, function(x)
+      paste(sort(x), collapse = ''))),]
+  
+  #creating the network model
+  g <- graph_from_data_frame(f.t.uniq, directed = F)
+  
+  #clusters with > 22 cells
+  clust <- components(g)$csize[components(g)$csize > 22]
+
+  clust.size.10 <- c(clust.size.10, clust)
+}
+```
+
+Comparison:
+
+```{r}
+cluster.size <- rbind(
+  data.frame(IntClust = "4-", Size = clust.size.4),
+  data.frame(IntClust = "10", Size = clust.size.10)
+  )
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Figure4/size.clusters.pdf")
+
+ggplot(cluster.size,aes(x=log2(Size),fill=IntClust)) +
+  theme_manuscript() +
+  geom_density(alpha=0.7) +
+  scale_fill_manual(values=c("#7D26CD","#B5D0D2")) +
+  xlab("Cluster size (log2)") +
+  ylab("Density")
+
+dev.off()
+```

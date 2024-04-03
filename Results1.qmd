@@ -1,0 +1,597 @@
+---
+title: "Results1"
+format: html
+editor: visual
+---
+
+# Tumour Composition (Figure 1)
+
+## Libraries and Data Files
+
+```{r}
+#clear environment
+rm(list=ls())
+```
+
+Libraries:
+
+```{r}
+#libraries
+library(data.table)
+library(tidyverse)
+library(ggpubr)
+library(ggforce)
+library(ggthemes)
+library(GGally)
+library(ConsensusTME)
+library(ggalluvial)
+```
+
+Plot theme:
+
+```{r}
+source("/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/theme_manuscript.R")
+```
+
+Directories:
+
+```{r}
+#resources directory
+dir.resources <- "/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Data/"
+
+# data files required
+file.singlecells <- paste0(dir.resources, "filt.cells.csv")
+file.rna <- paste0(dir.resources, "filt.rna.csv")
+file.clinical <- paste0(dir.resources, "filt.clinical.csv")
+file.neighbours <- paste0(dir.resources, "filt.neighbours.csv")
+```
+
+File loading:
+
+```{r}
+#cells file
+cells <- fread(file.singlecells)
+
+#clinical data file
+clinical <- fread(file.clinical)
+
+#rna file
+rna <- read.table(file.rna,row.names=1,header = T,sep=",")
+colnames(rna) <- gsub("\\.", "-", colnames(rna)) #changing sample ids to match all other data
+rna <- t(rna)
+
+#METABRIC clinical file
+clinical.cbio <- readRDS("/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Javier Rodriguez - METABRIC/clinical-data/METABRIC.MolecularSubtypes.RData")
+
+#neighbours file
+neighbours <- fread(file.neighbours)
+```
+
+## TNBC Classification
+
+```{r}
+#removing "IntClust" from the IntClust column
+clinical <- clinical %>%
+    mutate(IntClust = str_remove_all(IntClust, "IntClust "))
+
+#adding the tnbc.type4 classification
+clinical <- merge(clinical,clinical.cbio[,c("Donor.ID","TnbcType.4")],by.x="metabric_id",by.y="Donor.ID")
+
+#creating an alluvial plot
+t4 <- clinical %>% 
+  count(TnbcType.4) %>% 
+  top_n(5, n) %>% 
+  pull(TnbcType.4)
+
+pam <- clinical %>% 
+  filter(TnbcType.4 %in% t4) %>% 
+  count(PAM50) %>% 
+  top_n(5, n) %>% 
+  pull(PAM50)
+
+ic <- clinical %>% 
+  filter(TnbcType.4 %in% t4 & PAM50 %in% pam) %>% 
+  count(IntClust, TnbcType.4, PAM50) %>% 
+  mutate(IntClust = fct_relevel(as.factor(IntClust), c("10", "4-")))
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Figure1/ic.pam.t4.pdf",width=10)
+
+ggplot(ic,aes(y=n,axis1=PAM50,axis2=IntClust,axis3=TnbcType.4)) +
+  theme_manuscript() +
+  geom_alluvium(aes(fill=IntClust),width=0.5) +
+  geom_stratum(alpha=0,width=0.5) +
+  ggfittext::geom_fit_text(stat = "stratum", aes(label = after_stat(stratum)),width = 1, min.size = 9) +
+  scale_fill_manual(values=c("#7D26CD","#B5D0D2")) +
+  ylab("Frequency") +
+  scale_x_discrete(limits = c("PAM50", "IntClust", "TNBCtype-4"))
+
+dev.off()
+```
+
+## Tumour Composition
+
+```{r}
+#cell type frequncies in the whole slide
+freq.cell <- table(cells$metabric_id,cells$cellPhenotype)
+
+#which cell types are epithelial?
+epi.cells <- as.data.frame.matrix(table(cells$cellPhenotype,cells$is_epithelial))
+epi.cells <- epi.cells[epi.cells$`1` > 0,]
+
+#calculating proportion of tumour cells only
+freq.epi <- freq.cell[,colnames(freq.cell) %in% rownames(epi.cells)]
+prop.epi <- as.data.frame.matrix(prop.table(freq.epi,margin = 1))
+
+#adding intclust classification
+prop.epi <- rownames_to_column(prop.epi, var = "metabric_id")
+prop.epi.inclust <- merge(prop.epi,clinical[,c("metabric_id","IntClust")],by="metabric_id")
+
+#calculating p values for cell proportions (ic10 vs. ic4-)
+p.epi <- numeric()
+median4.epi<- numeric()
+median10.epi<-numeric()
+for (cols in c(2:17)){
+  x4 <-  prop.epi.inclust[prop.epi.inclust$IntClust=="4-",cols]
+  x10 <- prop.epi.inclust[prop.epi.inclust$IntClust=="10",cols]
+  m4 <- median(x4, na.rm = T)
+  m10 <- median(x10, na.rm = T)
+  w <- wilcox.test(x4,x10)
+  p.epi <- append(p.epi,w$p.value)
+  median4.epi <- append(median4.epi, m4)
+  median10.epi <- append(median10.epi, m10)
+}
+
+names(p.epi)<-colnames(prop.epi.inclust)[2:17]
+p.epi <- data.frame(p.epi,median4.epi,median10.epi)
+p.epi <- p.epi[order(p.epi$p.epi, decreasing=F),]
+
+#adjusted p values
+p.adjust.epi <- p.epi[p.epi$p.epi<0.05,]
+p.adjust.epi$p.adj <- p.adjust(p.adjust.epi$p.epi,method="BH")
+p.adjust.epi$group1 <- "4-"
+p.adjust.epi$group2 <- "10"
+```
+
+```{r}
+#plotting cells with significantly different composition in ic4- and ic10
+prop.epi.melted <- melt(prop.epi.inclust,id.vars=c(c("metabric_id","IntClust")))
+
+all.epi.p <- data.frame(
+  label = c("p = 0.00091", "p = 0.0023", "p = 0.013","p = 0.03", "p = 0.038", "p = 0.043"),
+  variable   = c("Basal", "ER^{hi}CXCL12^{+}","CK^{+} CXCL12^{+}","CK8-18^{hi}CXCL12^{hi}","HER2^{+}","CK^{med}ER^{lo}")
+)
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Supplementary/cell.comp.tum.pdf",width=14,height=11)
+
+ggplot(prop.epi.melted[prop.epi.melted$IntClust %in% c("4-","10") & prop.epi.melted$variable %in% rownames(p.epi[p.epi$p.epi<0.05,]),],aes(x=IntClust,y=value))+
+  theme_manuscript()+
+  geom_boxplot(aes(color=IntClust,fill=IntClust),show.legend = F,outliers = F)+
+  geom_jitter(aes(color=IntClust),show.legend = F,width=0.2)+
+  scale_fill_manual(values=c("#7D26CD","#B5D0D2")) +
+  scale_color_manual(values=c("black","black")) +
+  ylab("Cell proportion") +
+  ggtitle("Tumour cell composition") +
+  facet_wrap(~variable,scales = "free",labeller = labeller(variable = c(`CK8-18^{hi}CXCL12^{hi}` = "CK8-18-high/CXCL12-high", `CK^{+} CXCL12^{+}` = "CK+/CXCL12+", `ER^{hi}CXCL12^{+}` = "ER-high/CXCL12+", `HER2^{+}` = "HER2+", `CK^{med}ER^{lo}` = "CK-medium/ER-low"))) +
+  geom_text(data = all.epi.p, mapping = aes(x = -Inf, y = -Inf, label = label), hjust = -1, vjust = -16, size = 8)
+
+dev.off()
+```
+
+### Basal Cells
+
+```{r}
+#plotting the proportion of basal cells
+basal.p <- data.frame(
+  label = "p = 0.00091",
+  variable   = "Basal")
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Figure1/basal.tumour.pdf")
+
+ggplot(prop.epi.melted[prop.epi.melted$variable == "Basal",],aes(x=IntClust,y=value))+
+  theme_manuscript() +
+  geom_boxplot(aes(color=IntClust,fill=IntClust),show.legend = F,outliers = F)+
+  geom_jitter(aes(color=IntClust),show.legend = F,width=0.2)+
+  scale_fill_manual(values=c("#7D26CD","#B5D0D2")) +
+  scale_color_manual(values=c("black","black")) +
+  ylab("Basal cells proportion") +
+  geom_text(data = basal.p, mapping = aes(x = -Inf, y = -Inf, label = label), hjust = -1.5, vjust = -28, size = 7)
+
+dev.off()
+```
+
+### CXCL12+ Cells
+
+```{r}
+#plotting the proportion of cxcl12+ cells
+cxcl12.p <- data.frame(
+  label = c("p = 0.0023", "p = 0.013","p = 0.03"),
+  variable   = c("ER^{hi}CXCL12^{+}","CK^{+} CXCL12^{+}","CK8-18^{hi}CXCL12^{hi}")
+)
+
+cxcl12.phenotypes <- c("CK8-18^{hi}CXCL12^{hi}","CK^{+} CXCL12^{+}","ER^{hi}CXCL12^{+}")
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Figure1/cxcl12.tumour.pdf",width=13,height = 8)
+
+ggplot(prop.epi.melted[prop.epi.melted$variable %in% cxcl12.phenotypes,],aes(x=IntClust,y=value))+
+  theme_manuscript() +
+  geom_boxplot(aes(color=IntClust,fill=IntClust),show.legend = F,outliers = F)+
+  geom_jitter(aes(color=IntClust),show.legend = F,width=0.2)+
+  scale_fill_manual(values=c("#7D26CD","#B5D0D2")) +
+  scale_color_manual(values=c("black","black")) +
+  ylab("CXCL12+ tumour cells proportion") +
+  facet_wrap(~variable, labeller = labeller(variable = c(`CK8-18^{hi}CXCL12^{hi}` = "CK8-18-high/CXCL12-high", `CK^{+} CXCL12^{+}` = "CK+/CXCL12+", `ER^{hi}CXCL12^{+}` = "ER-high/CXCL12+"))) +
+  geom_text(data = cxcl12.p,mapping = aes(x = -Inf, y = -Inf, label = label),hjust = -1,vjust = -26,size = 8)
+
+dev.off()
+```
+
+### CXCL12-high/low
+
+Reclassifying tumour cells as either CXCL12-high or CXCL12-low:
+
+```{r}
+#subsetting the model only to epithelial cells
+cxcl12.epi <- cells[cells$is_epithelial == 1,]
+
+#removing cxcl12 intensity = 0
+cxcl12.epi <- cxcl12.epi[cxcl12.epi$CXCL12>0,]
+
+#distribution of cxcl12 protein intensity across all cells
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Supplementary/cxcl12.cutoff.pdf",width=8)
+
+ggplot(cxcl12.epi,aes(x=asinh(CXCL12))) +
+  theme_manuscript() +
+  geom_density() +
+  geom_vline(aes(xintercept = asinh(median(cxcl12.epi$CXCL12)), color = "Median"), size = 1) +
+  ylab("Density") +
+  xlab("CXCL12 intensity (arsinh)") +
+  scale_color_manual(name = "Cut-off", values = c(Median = "#0072B2"))
+
+dev.off()
+
+#taking median as the cut-off for defining cxcl12-high or cxcl12-low
+cells$CXCL12_classification[cells$is_epithelial == 1 & cells$CXCL12 < median(cxcl12.epi$CXCL12)] <- "low"
+
+cells$CXCL12_classification[cells$is_epithelial == 1 & cells$CXCL12 >= median(cxcl12.epi$CXCL12)] <- "high"
+
+rm(cxcl12.epi)
+```
+
+Proportion of CXCL12-high tumour cells:
+
+```{r}
+#calculating the proportion of cxcl12-high and cxcl12-low tumour cells
+freq.cxcl12.epi <- table(cells$metabric_id,cells$CXCL12_classification)
+prop.cxcl12.epi <- as.data.frame.matrix(prop.table(freq.cxcl12.epi,1))
+
+#adding intclust classification
+prop.cxcl12.epi <- merge(prop.cxcl12.epi,clinical[,c("metabric_id","IntClust")],by.x=0,by.y="metabric_id")
+
+#plotting the proportion of cxcl12-high tumour cells
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Figure1/cxcl12high.epicells.pdf")
+
+ggplot(prop.cxcl12.epi,aes(x=IntClust,y=high)) +
+  theme_manuscript() +
+  geom_boxplot(aes(color=IntClust,fill=IntClust),show.legend = F,outliers = F)+
+  geom_jitter(aes(color=IntClust),show.legend = F,width=0.2)+
+  scale_fill_manual(values=c("#7D26CD","#B5D0D2")) +
+  scale_color_manual(values=c("black","black")) +
+  stat_compare_means(method = "wilcox.test",size=7,label.x.npc="middle",label = "p.format") +
+  ylab("CXCL12-high tumour cells proportion")
+
+dev.off()
+```
+
+## TME Composition
+
+```{r}
+#which cells are non-epithelial?
+nonepi.cells <- as.data.frame.matrix(table(cells$cellPhenotype,cells$is_epithelial))
+nonepi.cells <- nonepi.cells[nonepi.cells$`0` > 0,]
+
+#frequency and proportion of TME cells
+freq.tme <- freq.cell[,colnames(freq.cell) %in% rownames(nonepi.cells)]
+prop.tme <- as.data.frame.matrix(prop.table(freq.tme,margin = 1))
+
+#adding ic10 and ic4- classification
+prop.tme.inclust <- merge(prop.tme,clinical[,c("metabric_id","IntClust")],by.x=0,by.y="metabric_id")
+
+#calculating p values for tme cell proportions (ic10 vs. ic4-)
+p.tme <- numeric()
+median4.tme<- numeric()
+median10.tme<-numeric()
+for (cols in c(2:17)){
+  x4 <-  prop.tme.inclust[prop.tme.inclust$IntClust=="4-",cols]
+  x10 <- prop.tme.inclust[prop.tme.inclust$IntClust=="10",cols]
+  m4 <- median(x4, na.rm = T)
+  m10 <- median(x10, na.rm = T)
+  w <- wilcox.test(x4,x10)
+  p.tme <- append(p.tme,w$p.value)
+  median4.tme <- append(median4.tme, m4)
+  median10.tme <- append(median10.tme, m10)
+}
+
+names(p.tme)<-colnames(prop.tme.inclust)[2:17]
+
+p.tme <- data.frame(p.tme,median4.tme,median10.tme)
+
+p.tme <- p.tme[order(p.tme$p.tme, decreasing=F),]
+
+#adjusting for multiple testing
+p.adjust.tme <- p.tme[p.tme$p.tme<0.05,]
+p.adjust.tme$p.adj <- p.adjust(p.adjust.tme$p.tme,method="BH")
+p.adjust.tme$group1 <- "4-"
+p.adjust.tme$group2 <- "10"
+```
+
+```{r}
+#plotting cells with significantly different composition in ic4- and ic10
+prop.tme.melted <- melt(prop.tme.inclust,id.vars=c(c("Row.names","IntClust")))
+
+all.tme.p <- data.frame(
+  label = c("p = 0.042", "p = 0.042"),
+  variable   = c("Endothelial","Fibroblasts FSP1^{+}")
+)
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Supplementary/cell.comp.tme.pdf",width=8)
+
+ggplot(prop.tme.melted[prop.tme.melted$variable %in% rownames(p.tme[p.tme$p.tme<0.05,]),],aes(x=IntClust,y=value))+
+  theme_manuscript() +
+  geom_boxplot(aes(color=IntClust,fill=IntClust),show.legend = F,outliers = F)+
+  geom_jitter(aes(color=IntClust),show.legend = F,width=0.2)+
+  scale_fill_manual(values=c("#7D26CD","#B5D0D2")) +
+  scale_color_manual(values=c("black","black")) +
+  ylab("Cell proportion") +
+  ggtitle("TME cell composition") +
+  facet_wrap(~variable,scales = "free", labeller = labeller(variable = c(`Fibroblasts FSP1^{+}` = "FSP1+ Fibroblasts"))) +
+  geom_text(
+  data    = all.tme.p,
+  mapping = aes(x = -Inf, y = -Inf, label = label),hjust = -1.2,vjust = -27,size = 6)
+
+dev.off()
+```
+
+### Endothelial Cells and FSP1+ Fibroblasts
+
+```{r}
+#taking proportions of endothelial cells and fsp1+ fibroblasts
+endo.fsp1 <- prop.tme.melted[prop.tme.melted$variable == "Endothelial" | prop.tme.melted$variable == "Fibroblasts FSP1^{+}",]
+
+endo.fsp1 <- pivot_wider(endo.fsp1, names_from = variable, values_from = value)
+
+#adding vegf expression
+endo.fsp1 <- merge(endo.fsp1,rna[,c("VEGFA","VEGFB","VEGFC","VEGFD")],by.x="Row.names",by.y=0)
+
+endo.fsp1$VEGF <- rowSums(endo.fsp1[,c("VEGFA","VEGFB","VEGFC","VEGFD")])
+
+#boxplot function for the correlation matrix plot
+boxplot_fun <- function(data, mapping, ...){
+  ggplot(data = data, mapping = mapping) +
+    geom_boxplot(aes(fill=IntClust),color="black")
+}
+
+#scatter function for the correlation matrix plot
+scatter_fun <- function(data, mapping, ...){
+  ggplot(data = data, mapping = mapping) +
+    geom_point(aes(color=IntClust)) +
+    geom_smooth(aes(group=1),method = "lm", se = T,formula= y~x,color="black")
+}
+
+#plotting the correlation matrix for proportion of endothelial cells, fsp1+ fibroblasts, and vegf expression
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Figure1/endo.fsp1.vegf.pdf",width=14,height=12)
+
+ggpairs(endo.fsp1, columns = c(3,4,9), ggplot2::aes(colour = IntClust),
+        columnLabels = c("Endothelial","FSP1+ Fibroblasts","VEGF"),
+        upper = list(continuous = wrap("cor", method = "spearman", size = 7)),
+        diag = list(continuous = boxplot_fun),
+        lower=list(continuous= scatter_fun)) +
+  theme(axis.title.y = element_text(angle=90,vjust =2,size = 21,face="bold"),
+        axis.title.x = element_text(vjust = -0.2,size = 21,face="bold"),
+        axis.text = element_text(size = 21), 
+        axis.line = element_line(colour="black"),
+        axis.ticks = element_line(),
+        strip.text = element_text(size=21)) +
+  scale_fill_manual(values = c("#7D26CD", "#B5D0D2")) +
+  scale_color_manual(values = c("#7D26CD", "#B5D0D2"))
+
+dev.off()
+
+#p value for vegf
+compare_means(VEGF ~ IntClust,data=endo.fsp1,method="wilcox")
+```
+
+### Endothelial Enrichment
+
+```{r}
+#computing enrichment scores for tme cells using their gene signatures
+con.tme <- consensusTMEAnalysis(t(rna),cancerType = "BRCA", statMethod = "singScore")
+
+con.tme <- as.data.frame(con.tme[["Scores"]])
+
+con.tme <- as.data.frame(t(con.tme))
+
+#adding ic10 and ic4- classification
+con.tme <- merge(con.tme,clinical[,c("metabric_id","IntClust")],by.x=0,by.y="metabric_id")
+
+#plotting the enrichment of endothelial cells
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Figure1/endo.consensus.pdf")
+
+ggplot(con.tme,aes(x=IntClust,y=Endothelial)) +
+  theme_manuscript() +
+  geom_boxplot(aes(color=IntClust,fill=IntClust),show.legend = F,outliers = F)+
+  geom_jitter(aes(color=IntClust),show.legend = F,width=0.2)+
+  scale_fill_manual(values=c("#7D26CD","#B5D0D2")) +
+  scale_color_manual(values=c("black","black")) +
+  stat_compare_means(method = "wilcox.test",size=7,label.x.npc=0.3,label = "p.format") +
+  ylab("Endothelial enrichment score")
+
+dev.off()
+```
+
+## Tumour-Endothelial Interactions
+
+```{r}
+#from only tumour cells
+from.tum <- neighbours[neighbours$from_is_epithelial == 1,]
+
+#converting all tumour phenotypes into 'epithelial'
+from.tum$from_cellPhenotype[from.tum$from_is_epithelial == 1] <- "Epithelial"
+from.tum$to_cellPhenotype[from.tum$to_is_epithelial == 1] <- "Epithelial"
+
+#33 IC4- images
+images.4 <- unique(cells[cells$metabric_id %in% clinical[clinical$IntClust == "4-",]$metabric_id,]$ImageNumber)
+
+#54 IC10 images
+images.10 <- unique(cells[cells$metabric_id %in% clinical[clinical$IntClust == "10",]$metabric_id,]$ImageNumber)
+```
+
+IntClust4-
+
+```{r}
+interactions.4 <- list()
+neighborhoods.4 <- list()
+
+for (image in images.4) {
+  #subset per image/slide
+  sub.im <- from.tum[from.tum$ImageNumber == image,]
+
+  #frequency of cell types in physical contact for each tumour cell
+  freq <- table(sub.im$from,sub.im$to_cellPhenotype)
+  
+  #frequency to proportion
+  prop <- as.data.frame.matrix(prop.table(freq,1))
+  
+  #adding the sum of cells that each tumour cell is in contact with
+  prop$sum <- rowSums(freq)
+  
+  #filtering out tumour cells that have only interactions with other tumour cells
+  prop.filt <- prop[!prop$Epithelial == 1,]
+  
+  #some images resulted in 0 interactions -> average = NA
+  if (length(prop.filt) == 0) {
+    averg <- NA
+  } else {
+    averg <- colMeans(prop.filt)
+  }
+  
+  #list with all interactions per image
+  neighborhoods.4[[paste0("image_",image)]] <- prop.filt
+  
+  #list with average proportions per image
+  interactions.4[[paste0("image_",image)]] <- as.data.frame(averg)
+}
+```
+
+```{r}
+#bind all dfs into 1 by row
+filt.inter.4 <- do.call(rbind, interactions.4)
+
+#list of interactions per image
+row.names.list.4 <- lapply(interactions.4, row.names)
+
+# interactions in ic4-
+row.names.4 <- unique(unlist(row.names.list.4))
+
+#how many images have which interactions?
+row.name.counts.4 <- sapply(row.names.4, function(row_name) {
+  sum(sapply(row.names.list.4, function(row_names) row_name %in% row_names))
+})
+
+#which interactions are in at least 50% of samples?
+filt.names.4 <- row.names.4[row.name.counts.4 >= 17]
+
+#spliting row names into image and cell
+filt.inter.4[c("Image", "Cell")] <- str_split_fixed(rownames(filt.inter.4), '\\.', 2)
+
+#filter out interactions present in less than 50% of samples
+filt.inter.4 <- filt.inter.4[filt.inter.4$Cell %in% filt.names.4,]
+
+#erasing sums
+filt.inter.4 <- filt.inter.4[filt.inter.4$Cell != "sum",]
+```
+
+IntClust10
+
+```{r}
+#same steps for ic10
+
+interactions.10 <- list()
+neighborhoods.10 <- list()
+
+for (image in images.10) {
+  sub.im <- from.tum[from.tum$ImageNumber == image,]
+
+  freq <- table(sub.im$from,sub.im$to_cellPhenotype)
+
+  prop <- as.data.frame.matrix(prop.table(freq,1))
+  
+  prop$sum <- rowSums(freq)
+  
+  prop.filt <- prop[!prop$Epithelial == 1,]
+  
+  if (length(prop.filt) == 0) {
+    averg <- NA
+  } else {
+    averg <- colMeans(prop.filt)
+  }
+  
+  neighborhoods.10[[paste0("image_",image)]] <- prop.filt
+
+  interactions.10[[paste0("image_",image)]] <- as.data.frame(averg)
+}
+```
+
+```{r}
+#bind all dfs into 1 by row
+filt.inter.10 <- do.call(rbind, interactions.10)
+
+#list of interactions per image
+row.names.list.10 <- lapply(interactions.10, row.names)
+
+# interactions in ic10
+row.names.10 <- unique(unlist(row.names.list.10))
+
+#how many images have which interactions?
+row.name.counts.10 <- sapply(row.names.10, function(row_name) {
+  sum(sapply(row.names.list.10, function(row_names) row_name %in% row_names))
+})
+
+#which interactions are in at least 50% of samples?
+filt.names.10 <- row.names.10[row.name.counts.10 >= 27]
+
+#spliting row names into image and cell
+filt.inter.10[c("Image", "Cell")] <- str_split_fixed(rownames(filt.inter.10), '\\.', 2)
+
+#filter out interactions present in less than 50% of samples
+filt.inter.10 <- filt.inter.10[filt.inter.10$Cell %in% filt.names.10,]
+
+#erasing sums
+filt.inter.10 <- filt.inter.10[filt.inter.10$Cell != "sum",]
+```
+
+Comparison
+
+```{r}
+#interested only in tumour-endothelial interactions
+tum.endo <- rbind(
+  data.frame(IntClust = "4-", Interaction = filt.inter.4[filt.inter.4$Cell == "Endothelial",]$averg),
+  data.frame(IntClust = "10", Interaction = filt.inter.10[filt.inter.10$Cell == "Endothelial",]$averg)
+)
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Figure1/endo.inter.pdf")
+
+ggplot(tum.endo,aes(x=IntClust,y=Interaction)) +
+  theme_manuscript() +
+  geom_boxplot(aes(color=IntClust,fill=IntClust),show.legend = F,outliers = F)+
+  geom_jitter(aes(color=IntClust),show.legend = F,width=0.2)+
+  scale_fill_manual(values=c("#7D26CD","#B5D0D2")) +
+  scale_color_manual(values=c("black","black")) +
+  stat_compare_means(method = "wilcox.test",size=7,label.x.npc="middle",label = "p.format") +
+  ylab("Proportion of endothelial cells")
+
+dev.off()
+```

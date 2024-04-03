@@ -1,0 +1,262 @@
+---
+title: "data.clearing"
+format: html
+editor: visual
+---
+
+# Filtering Data Files
+
+## Files and Libraries
+
+```{r}
+#clear environment
+rm(list=ls())
+```
+
+```{r}
+#libraries
+library(data.table)
+library(tidyverse)
+
+#plot theme
+source("/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/theme_manuscript.R")
+```
+
+Directories:
+
+```{r}
+# resources directory
+dir.resources <- "~/OneDrive - The Institute of Cancer Research/Stephen-John Sammut - resources/"
+
+# data files required
+file.neighbours  <- paste0(dir.resources, "CellNeighbours.csv.gz")
+file.singlecells <- paste0(dir.resources, "SingleCells.csv.gz")
+file.metadata.orig    <- paste0(dir.resources, "IMCClinical.csv.gz")
+file.metadata.new    <- paste0(dir.resources, "METABRIC.MolecularSubtypes.RData")
+file.rna <- paste0(dir.resources, "RNA/MB-RNA-HUGO.RData")
+file.gene.sig <- paste0(dir.resources, "CAF_signature_short.csv")
+file.clinical <- paste0(dir.resources, "IMCClinical.csv.gz")
+```
+
+File loading:
+
+```{r}
+#cells file
+cells <- fread(file.singlecells)
+
+#cell neighbours file
+neighbours <- fread(file.neighbours)
+
+#metadata files
+metadata.orig <- fread(file.metadata.orig)
+metadata.new <- readRDS(file.metadata.new)
+
+#clinical data file
+clinical <- fread(file.clinical)
+
+#rna file
+rna <- readRDS(file.rna)
+```
+
+## Cleaning
+
+TNBC only:
+
+```{r}
+# which metabric IDs are in raza's metadata file but not in ours
+notInOurMetadata <- setdiff(metadata.orig$metabric_id,metadata.new$Donor.ID)
+length(notInOurMetadata)
+
+# do they have intclust assigned?
+table(metadata.orig[metadata.orig$metabric_id %in% notInOurMetadata,]$IntClust)
+
+# no - they do not have expression data OK!
+metadata.new <- metadata.new[metadata.new$Donor.ID %in% metadata.orig$metabric_id,]
+nrow(metadata.new)
+
+#plotting er, pr, and her2 status of patients
+
+er.pr.her2 <- metadata.new[,c("ER.expr","HER2.expr","PR.expr")]
+
+er.pr.her2 <- pivot_longer(er.pr.her2, cols = everything(), names_to = "Gene", values_to = "Status")
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Supplementary/gene.status.pdf")
+
+ggplot(er.pr.her2, aes(x = Gene)) +
+  theme_manuscript() +
+  geom_bar(aes(fill = Status)) +
+  scale_fill_manual(values = c("#7DB8C1","#DD614A")) +
+  scale_x_discrete(labels= c("ER","PR","HER2")) +
+  ylab("Count")
+
+dev.off()
+
+#selecting only ER-, PR-, and HER-
+tnbc <- metadata.new[metadata.new$ER.expr == "Neg" & metadata.new$HER2.expr == "Neg" & metadata.new$PR.expr == "Neg", ]
+
+tnbc$IntClust[tnbc$IntClust=="4"] <- "4-"
+
+nrow(tnbc)
+
+rm(metadata.new,metadata.orig,notInOurMetadata)
+
+#102 TNBC samples
+```
+
+Relevant images:
+
+```{r}
+#retain cells that are in TNBC samples
+cells <- cells[cells$metabric_id %in% tnbc$Donor.ID,]
+
+#one of these samples in the metadata does not have associated image data!
+setdiff(tnbc$Donor.ID,cells$metabric_id)
+tnbc <- tnbc[tnbc$Donor.ID %in% cells$metabric_id,]
+nrow(tnbc) #101 samples now
+```
+
+```{r}
+#how many images from adjacent normal tissue?
+normal.images <- unique(cells[cells$is_normal==T,]$ImageNumber)
+length(normal.images)
+
+#all cells in these 8 images are normal, non-tumour cells
+table(cells[cells$ImageNumber %in% normal.images,]$isTumour)
+
+#removing the images
+cells <- cells[!cells$ImageNumber %in% normal.images,]
+
+#we have lost four more cases which only had normal tissue
+setdiff(tnbc$Donor.ID,cells$metabric_id)
+tnbc <- tnbc[tnbc$Donor.ID %in% cells$metabric_id,]
+nrow(tnbc) #97 tnbc samples
+length(unique(cells$metabric_id))
+```
+
+Tumour or DCIS?
+
+```{r}
+#how many dcis?
+table(cells$is_tumour,cells$is_dcis)
+dcis.images <- unique(cells[cells$is_dcis==1,]$ImageNumber)
+length(dcis.images)
+
+#removing the image and sample from cells and tnbc data
+cells <- cells[!cells$ImageNumber %in% dcis.images,]
+tnbc <- tnbc[tnbc$Donor.ID %in% cells$metabric_id,]
+
+dim(tnbc) #96 tnbc samples
+length(unique(cells$metabric_id)) #96 samples
+length(unique(cells$ImageNumber)) #103 images
+```
+
+TNBC IntClust classification:
+
+```{r}
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Supplementary/ic.samples.pdf")
+
+ggplot(tnbc,aes(IntClust)) +
+  theme_manuscript() +
+  geom_bar(aes(fill=IntClust)) +
+  scale_fill_manual(values=c("#CF8BA9","#7D26CD","#B15E6C","#E59500","#B5D0D2","#60695C","#FF9B71")) +
+  ylab("Count")
+
+dev.off()
+```
+
+IC4- and IC10 only:
+
+```{r}
+tnbc <- tnbc[tnbc$IntClust == "4-" | tnbc$IntClust == "10",]
+
+cells <- cells[cells$metabric_id %in% tnbc$Donor.ID,]
+
+dim(tnbc) #81 samples
+length(unique(cells$metabric_id)) #81 samples
+```
+
+## Matching All Data
+
+```{r}
+#cleaning clinical data
+clinical <- clinical[clinical$metabric_id %in% tnbc$Donor.ID,]
+
+#cleaning rna data
+rna <- rna[,colnames(rna) %in% tnbc$Donor.ID]
+
+#tnbc and cells data should already match
+setdiff(cells$metabric_id,tnbc$Donor.ID)
+setdiff(tnbc$Donor.ID,cells$metabric_id)
+
+#make neighbours df match cells images
+dim(neighbours)
+neighbours <- neighbours[neighbours$ImageNumber %in% cells$ImageNumber,]
+dim(neighbours)
+setdiff(neighbours$ImageNumber,cells$ImageNumber)
+setdiff(cells$ImageNumber,neighbours$ImageNumber)
+```
+
+## Write Files
+
+```{r}
+#cells
+write.csv(cells,"filt.cells.csv")
+
+#neighbours
+write.csv(neighbours,"filt.neighbours.csv")
+
+#clinical
+write.csv(clinical,"filt.clinical.csv")
+
+#rna
+write.csv(rna,"filt.rna.csv")
+
+#tnbc
+write.csv(tnbc,"filt.tnbc.csv")
+```
+
+## Data Visualisation
+
+Number of cells per slide/image:
+
+```{r}
+#number of rows in the cells df corresponding to each image number = number of cells per image
+cells.slide <- as.data.frame(table(cells$ImageNumber))
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Supplementary/ncells.slide.pdf")
+
+ggplot(cells.slide,aes(x=Freq))+
+  theme_manuscript() +
+  geom_density() +
+  ylab("Density") +
+  xlab("Number of cells per slide")
+
+dev.off()
+```
+
+Number of epithelial cells vs. number of non-epithelial cells:
+
+```{r}
+#frequency of epithelial and non-epithelial cells per image
+epi.nonepi <- as.data.frame(table(cells$ImageNumber,cells$is_epithelial))
+
+epi <- epi.nonepi[epi.nonepi$Var2 == 1,]
+
+colnames(epi) <- c("Image","is_epithelial","epi")
+
+nonepi <- epi.nonepi[epi.nonepi$Var2 == 0,]
+
+colnames(nonepi) <- c("Image","is_epithelial","nonepi")
+
+epi.nonepi2 <- merge(epi[,c("Image","epi")],nonepi[,c("Image","nonepi")],by="Image")
+
+pdf(file="/Users/aphuong/Library/CloudStorage/OneDrive-SharedLibraries-TheInstituteofCancerResearch/Stephen-John Sammut - IMC-networks/Thesis_Code/Plots/Supplementary/n.epi.nonepi.pdf")
+
+ggplot(epi.nonepi2,aes(x=epi,y=nonepi)) +
+  theme_manuscript() +
+  geom_point() +
+  ylab("Number of epithelial cells") +
+  xlab("Number of non-epithelial cells")
+
+dev.off()
+```
